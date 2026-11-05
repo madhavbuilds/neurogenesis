@@ -4,37 +4,40 @@
 
 ### A neural network that grows its own brain.
 
-**Starts with one neuron. Grows where the gradient asks. Prunes what it doesn't need. Stops when it's done.**
+**Starts with one neuron · grows where the gradient asks · prunes what it doesn't need · stops on its own**
 
-You never choose the number of neurons again.
+[![tests](https://github.com/madhavbuilds/neurogenesis/actions/workflows/tests.yml/badge.svg)](https://github.com/madhavbuilds/neurogenesis/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![python](https://img.shields.io/badge/python-3.9%2B-blue)
+![dependencies](https://img.shields.io/badge/dependencies-numpy%20only-brightgreen)
 
-![spiral](assets/spiral.gif)
+![A network growing from 1 to 19 neurons while learning a spiral](assets/spiral.gif)
 
 </div>
 
 ---
 
-Every neural network you've ever trained began with a guess: *how wide should this layer be?*
-Too small and it can't learn. Too big and you waste compute, memory and time, then you sweep
-`[16, 32, 64, 128, 256]` and train five networks to keep one.
+## The idea in 30 seconds
 
-**Neurogenesis drops the guess.** The network is born with a single hidden neuron. While it trains,
-it runs a life cycle loosely modelled on the brain:
+Every neural network starts with a guess: **how many neurons should it have?**
+Guess too few and it can't learn. Guess too many and you waste time and compute.
+So people train many sizes and keep the best one.
 
-| | Event | What happens |
-|---|---|---|
-| 🐣 | **Birth** | When learning plateaus, hundreds of candidate neurons **audition**. Each is scored by the exact gradient its outgoing weights would receive, which is how fast it would reduce the loss if hired. The best, mutually-diverse winners are born with **zero outgoing weights**, so a birth **never changes the network's output**. They then learn to contribute. |
-| 💀 | **Death** | A neuron whose contribution (activation spread × outgoing weight strength) withers is removed. Its average output moves into the next layer's bias, so the function barely moves. |
-| 🔗 | **Fusion** | Two neurons that fire in lock-step (\|corr\| > 0.995) merge into one by linear regression, with almost no change in output. |
-| 🌳 | **Maturity** | When growth spurts stop paying off (3 in a row that improve the loss by < 5%), growth stops. The network fine-tunes and **halts on its own**. |
+**Neurogenesis skips the guess.** It starts with **one** neuron, and while it trains:
 
-What's left is a network sized to fit **this problem**. Nobody picked the size.
+- 🐣 when it gets **stuck**, it **adds** the new neurons that would help most,
+- 💀 neurons that **do nothing** are **removed**,
+- 🔗 neurons that **do the same job** are **merged**,
+- 🌳 when adding more stops helping, it **stops growing**.
+
+Think of a plant that grows only the branches it needs, instead of you deciding its shape up front.
 
 ## Quickstart
 
 ```bash
-pip install numpy matplotlib pillow
-python examples/grow.py spiral        # writes assets/spiral.gif
+git clone https://github.com/madhavbuilds/neurogenesis && cd neurogenesis
+pip install -e ".[viz]"
+python examples/grow.py spiral           # renders assets/spiral.gif
 ```
 
 ```python
@@ -42,112 +45,206 @@ from neurogenesis import Neurogenesis
 from neurogenesis.datasets import spiral
 
 X, y = spiral()
-model = Neurogenesis(verbose=True).fit(X, y)   # no width, no epochs, no early-stopping config
+model = Neurogenesis(random_state=0).fit(X, y)   # no width, no epochs, no early-stopping config
 
-print(model.widths_)        # e.g. [19]  <- chosen by the network
-print(model.score(X, y))    # 0.999
+model.widths_         # [19]   <- the network chose this
+model.score(X, y)     # 0.999
+model.predict(X[:5])
 print(model.life_story())   # every birth, death and fusion, with the step it happened
 ```
 
 ```
+Neurogenesis: 19 neurons [19], 117 params, 20800 steps | births=22 deaths=2 fusions=2
 [   500] + birth     L0 n1 pressure=0.2170 -> layer width 3
 [   500] + birth     L0 n2 pressure=0.2143 -> layer width 3
 [  1200] + birth     L0 n3 pressure=0.1864 -> layer width 5
 ...
-[ 19200] + birth     L0 n22 pressure=0.0045 -> layer width 20
 [ 19800] & fusion    L0 n22 -> n21 (corr=-0.996)
 [ 20200] * mature    stopped growing at 19 neurons, widths=[19]
 [ 20800] # converged loss=0.0096 neurons=19
 ```
 
-Works for classification and regression (auto-detected), and for any depth (`hidden_layers=3`).
-Each spurt grows the layer with the most unexplained gradient. **Pure NumPy, one ~470-line file, no other runtime dependency.**
+It works for classification and regression (auto-detected, or pass `task=`).
+The core is **pure NumPy, in one readable file**.
 
-## It finds the right size, even when the right size is tiny
+## How it works
 
-| Problem | Neurons it chose | Why that's right |
-|---|---|---|
-| Two concentric circles | **3** | 3 tanh units is the minimum that can enclose a region in 2-D |
-| Two moons | 5–14 | a gently curved boundary (4 is enough, so this one over-grows: see benchmark) |
-| 1-D chirp regression | ~9 | one unit per bend in the curve |
-| 3-arm spiral | ~20 | the classic "hard" toy problem |
-| 4×4 checkerboard | ~23 | 16 tiles of axis-aligned edges |
+```mermaid
+flowchart LR
+    A([Start: 1 neuron]) --> B[Train with Adam]
+    B --> C{Health check<br/>every 100 steps}
+    C -->|always| D["💀 Remove useless neurons<br/>🔗 Merge look-alike pairs"]
+    D --> E{Is learning<br/>stuck?}
+    E -->|no| B
+    E -->|yes| F{Did the last growth<br/>spurts still help?}
+    F -->|yes| G["🎤 Audition 512 candidate neurons<br/>🐣 hire the best 2"]
+    G --> B
+    F -->|"no, 3 times in a row"| H([🌳 Mature: stop growing,<br/>fine-tune, then halt])
+```
 
-<p align="center"><img src="assets/wavy.gif" width="49%"> <img src="assets/moons.gif" width="49%"></p>
-<p align="center"><img src="assets/checkerboard.gif" width="80%"></p>
+### The audition: how new neurons are chosen
 
-## Benchmark: one run vs. a full width sweep
+When the network is stuck, it doesn't add random neurons. It **auditions** them.
+In a 2-D problem, each candidate neuron is simply a **line** through the data:
 
-Every fixed-width MLP uses **the same code, optimiser, activation and depth** and gets the full 30k-step budget.
-Neurogenesis starts from 1 neuron, chooses its own size and stops on its own. Test sets are held out, results are averaged over 3 seeds.
-Reproduce with `python benchmarks/benchmark.py`.
+<p align="center"><img src="assets/audition.gif" alt="Step-by-step animation of an audition" width="100%"></p>
 
-| dataset | Neurogenesis score | neurons (self-chosen) | steps | best fixed MLP | smallest fixed MLP within 1 pt of Neurogenesis |
-|---|---|---|---|---|---|
-| spiral | **0.981** ± 0.009 | **22.0** (19–27) | 26933 | 0.988 (w=64) | w=16 (0.978) |
-| moons | **0.992** ± 0.003 | **10.7** (5–14) | 9000 | 0.991 (w=4) | w=4 (0.991) |
-| circles | **0.997** ± 0.004 | **3.7** (3–5) | 9033 | 0.997 (w=4) | w=4 (0.997) |
-| checkerboard | **0.972** ± 0.005 | **22.7** (20–25) | 17933 | 0.979 (w=32) | w=16 (0.974) |
-| wavy (regression) | **0.990** ± 0.001 | **8.7** (6–11) | 7400 | 0.990 (w=32) | w=4 (0.987) |
+1. **Stuck.** The network has plateaued. The ringed points are the ones it still gets wrong.
+2. **Propose.** 512 candidate neurons are generated, most of them drawn through real data points.
+3. **Score.** Each candidate is scored by *how fast it would reduce the error if hired*.
+   That is the size of the gradient its outgoing weights would receive.
+4. **Hire.** The top 2 that don't duplicate existing neurons join with **outgoing weights set to zero**,
+   so the network's output does not change at the moment of birth (tested to 1e-12).
+5. **Learn.** Training continues and the new neurons start contributing. In this real run, training accuracy went from 90.2% to 99.0%.
 
-### Fixed-width sweep (mean test score over seeds, 30k steps each)
+Everything in that animation is computed by the library. Reproduce it with `python examples/explain_audition.py`.
 
-| dataset | w=2 | w=4 | w=8 | w=16 | w=32 | w=64 | w=128 |
-|---|---|---|---|---|---|---|---|
-| spiral | 0.522 | 0.621 | 0.839 | 0.978 | 0.987 | 0.988 | 0.984 |
-| moons | 0.896 | 0.991 | 0.989 | 0.989 | 0.988 | 0.985 | 0.983 |
-| circles | 0.780 | 0.997 | 0.997 | 0.997 | 0.997 | 0.997 | 0.997 |
-| checkerboard | 0.582 | 0.722 | 0.869 | 0.974 | 0.979 | 0.977 | 0.979 |
-| wavy (regression) | 0.900 | 0.987 | 0.990 | 0.988 | 0.990 | 0.989 | 0.988 |
+### The four life events
 
-**How to read this:**
-- **The width is a trap.** At w=2–8 the spiral and checkerboard fail badly (52–87%). A bad guess costs you 10–45 points.
-- **One run ≈ the whole sweep.** Neurogenesis lands within ~1 point of the best of 7 fixed widths on every task.
-  The sweep spends 7 × 30k = 210k training steps. Neurogenesis spends 7k–27k, which is **8–28× fewer steps**.
-- **It is not magic.** A width hand-tuned in hindsight is still slightly better on spiral and checkerboard (by 0.7 points),
-  and on moons it over-grows (≈11 neurons where 4 suffice). Tighter maturity rules are an open problem and PRs are welcome.
+| | Event | When | What happens | Why it's safe |
+|---|---|---|---|---|
+| 🐣 | **Birth** | learning plateaus | the best audition winners join | zero outgoing weights → output unchanged |
+| 💀 | **Death** | a neuron's *activation spread × outgoing weight strength* falls below 5% of the layer average | it's removed | its average output moves into the next layer's bias |
+| 🔗 | **Fusion** | two neurons fire in lock-step (\|corr\| > 0.995) | one is folded into the other by linear regression | output nearly unchanged |
+| 🌳 | **Maturity** | 3 growth spurts in a row each improve the loss by < 5% | growth stops, then training halts at the next plateau | — |
 
-## How the audition works (the core idea)
+New neurons are protected from death and fusion for their first 600 steps.
+Each weight keeps its **own Adam step counter**, so newborn weights get properly scaled first updates.
 
-For a hidden layer with inputs **A** (n × d) and back-propagated error **Δ** at the next layer (n × out),
-a new neuron *h = tanh(Aw + b)* with zero fan-out gets this gradient on its fan-out:
+For the math, see **[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)**.
 
-$$\nabla_{v}\mathcal{L} = \tfrac{1}{n}\, h^\top \Delta$$
+## Watch it learn
 
-Its norm is the **first-order rate at which hiring this neuron would reduce the loss**. So we:
+| 1-D regression: fits a chirp with 9 neurons | Two moons |
+|---|---|
+| ![wavy](assets/wavy.gif) | ![moons](assets/moons.gif) |
 
-1. Generate a pool of 512 candidates. A few are the linear-optimal directions (the top singular vectors of
-   **Aᵀ Δ**). The rest are random hyperplanes **anchored through real data points**, with random sharpness.
-2. Standardise each candidate's activation and score it by ‖ĥᵀΔ‖.
-3. Hire the top-k, skipping any candidate that correlates > 0.95 with an existing neuron or another winner.
-4. Insert them with zero fan-out, so the output is unchanged (tested to 1e-12). Each parameter keeps its own
-   Adam step counter, so newborn weights get correctly bias-corrected updates instead of a shock.
+![checkerboard](assets/checkerboard.gif)
 
-Growth, death and fusion all edit the weights **and the optimiser state** together, so training continues
-smoothly through every change of shape.
+## Benchmark: one run vs. a whole width sweep
 
-## Honest notes
+Every fixed-width MLP uses the **same code, optimiser, activation and depth**, and gets a full 30k-step budget.
+Neurogenesis starts from 1 neuron, picks its own size and stops on its own.
+Scores are on held-out test sets, averaged over 3 seeds.
 
-- This is a research-grade library, not a framework. It's a dense MLP in NumPy, built to make the idea
-  crystal-clear and hackable. The natural next step is a PyTorch port for CNN channels / transformer MLP widths.
-- Related work it builds on: Cascade-Correlation (Fahlman & Lebiere, 1990), GradMax (Evci et al., 2022),
-  Splitting Steepest Descent (Liu et al., 2019), Taylor pruning (Molchanov et al., 2017). The contribution here is one
-  closed loop: audition, function-preserving birth, compensated death, regression fusion and automatic maturity,
-  with optimiser state that follows the network as it changes shape.
-- The knobs that remain (`plateau_tol`, `min_gain`, `prune_utility`) set how hard the network works to improve, not how big it is.
-  Defaults were used for every result above.
+![benchmark chart](assets/benchmark.png)
+
+| dataset | Neurogenesis | neurons it chose | best fixed MLP | smallest fixed MLP within 1 pt |
+|---|---|---|---|---|
+| spiral | 0.981 ± 0.009 | 22.0 (19–27) | 0.988 (w=64) | w=16 |
+| moons | 0.992 ± 0.003 | 10.7 (5–14) | 0.991 (w=4) | w=4 |
+| circles | 0.997 ± 0.004 | 3.7 (3–5) | 0.997 (w=4) | w=4 |
+| checkerboard | 0.972 ± 0.005 | 22.7 (20–25) | 0.979 (w=32) | w=16 |
+| wavy (R²) | 0.990 ± 0.001 | 8.7 (6–11) | 0.990 (w=32) | w=4 |
+
+**What this shows, honestly:**
+
+- ✅ **Picking the wrong size hurts a lot.** At 2–8 neurons, spiral and checkerboard score 52–87%.
+- ✅ **One run ≈ the best of the sweep.** Neurogenesis lands within about 1 point of the best of 7 sizes on every task,
+  using 7k–27k training steps, against the 210k the sweep needs.
+- ✅ **It can find tiny solutions.** On circles it stopped at 3 neurons in 2 of 3 seeds.
+- ⚠️ **It doesn't beat a well-chosen size.** The best hand-picked width is still about 0.7 points better on spiral and checkerboard.
+- ⚠️ **It can over-grow.** On moons it used ~11 neurons where 4 are enough.
+- ⚠️ **Toy data only, so far.** These are 2-D/1-D synthetic problems. Real-data benchmarks are the top item on the [roadmap](docs/RESEARCH_ROADMAP.md).
+
+Full numbers: [`benchmarks/results.md`](benchmarks/results.md). Reproduce them with `python benchmarks/benchmark.py` (about 5 minutes on a laptop).
+
+## Is this new?
+
+**Mostly no, and we'd rather say so up front.** Every building block has a published ancestor:
+
+| Neurogenesis piece | Prior work |
+|---|---|
+| Grow when the error stops falling | Dynamic Node Creation (Ash, 1989) |
+| A candidate pool scored against the remaining error | Cascade-Correlation (Fahlman & Lebiere, 1989/90) |
+| Gradient-maximizing new neurons, SVD seeding, zero outgoing weights | GradMax (Evci et al., ICLR 2022); Net2Net (2016); Network Morphism (2016) |
+| When / where / how to add neurons | NORTH (Maile et al., AutoML 2022); Self-Expanding NNs (Mitchell et al., 2023) |
+| Optimal fixes for capacity bottlenecks | TINY (Verbockhaven et al., TMLR 2024) |
+| Learning width end-to-end | Adaptive Width Neural Networks (Errica et al., ICLR 2026) |
+| Grow, then prune | NeST (Dai, Yin & Jha) |
+
+What Neurogenesis offers is a **small, readable, closed-loop implementation**: audition, output-preserving birth,
+death with bias compensation, regression-based fusion and automatic maturity, with optimizer state that follows every change in shape.
+It's a good place to learn, experiment and build on. See [docs/RESEARCH_ROADMAP.md](docs/RESEARCH_ROADMAP.md)
+for what would make it a research contribution.
+
+## Known limitations
+
+- **One hidden layer is the tested setting.** With `hidden_layers>1`, growth can get stuck in upstream layers and leave a
+  1-neuron bottleneck (example: widths `[10, 10, 1]` on spiral). The cause is diagnosed in the roadmap, and fixing it is high on the list.
+- **Growth decisions use training data.** There's no validation split yet, so on noisy data it may over-grow.
+- **Dense MLPs on NumPy, CPU only.** No GPU, no convolutional or attention models (yet).
+- **Integer-valued float targets** with 32 or fewer unique values are treated as classification. Pass `task="regression"` for counts or ratings.
+
+## API
+
+```python
+Neurogenesis(
+    hidden_layers=1,        # depth is fixed; width is learned (1 layer is the tested setting)
+    init_width=1,           # neurons each hidden layer starts with
+    max_width=128,          # hard cap per layer
+    learning_rate=0.01, batch_size=128, max_steps=30_000,
+    check_every=100,        # steps between health checks
+    plateau_window=4, plateau_tol=0.03,   # "stuck" = < 3% improvement over 4 checks
+    grow_k=2, candidates=512,             # hires per spurt, audition pool size
+    min_gain=0.05, maturity_patience=3,   # when to stop growing
+    prune_utility=0.05, fuse_corr=0.995, min_age=600,
+    weight_decay=1e-4,
+    task="auto",            # or "classification" / "regression"
+    static=False,           # True = plain fixed-width MLP (used as the benchmark baseline)
+    random_state=None, verbose=False,
+)
+```
+
+| Method / attribute | |
+|---|---|
+| `fit(X, y, callback=None)` | train and grow. `callback(model, step, loss)` runs at every health check |
+| `predict`, `predict_proba`, `score` | the usual (`score` = accuracy or R²) |
+| `widths_`, `n_neurons_`, `n_params_`, `n_steps_` | the size it chose and how long it trained |
+| `events_`, `life_story()` | every birth, death, fusion and maturity event |
+| `history_` | loss, neuron count and widths at every check |
+
+Make your own animation:
+
+```python
+from neurogenesis.viz import grow_and_render
+grow_and_render(Neurogenesis(random_state=0), X, y, "my_run.gif")
+```
+
+## Reproduce everything
+
+| Command | Produces |
+|---|---|
+| `pytest` | 9 tests: output-preserving birth, lossless fusion, optimizer bookkeeping, input validation |
+| `python examples/grow.py {spiral,moons,circles,checkerboard,wavy}` | `assets/<name>.gif` |
+| `python examples/explain_audition.py` | `assets/audition.gif` |
+| `python benchmarks/benchmark.py` | `benchmarks/results.md` |
+| `python benchmarks/plot_results.py` | `assets/benchmark.png` |
+
+All runs are seeded and deterministic on a given machine.
 
 ## Project layout
 
 ```
-neurogenesis/core.py      the algorithm (life cycle + Adam-with-surgery)
-neurogenesis/viz.py       recorder + GIF renderer
-neurogenesis/datasets.py  dependency-free toy datasets
-examples/grow.py          make the animations
-benchmarks/benchmark.py   the comparison above
-tests/                    function-preservation and bookkeeping tests (pytest)
+neurogenesis/
+  core.py        the algorithm: life cycle + Adam that survives shape changes
+  viz.py         recorder and GIF renderer
+  datasets.py    dependency-free toy datasets
+examples/        animations (grow.py, explain_audition.py)
+benchmarks/      comparison against fixed widths, plus the chart
+docs/            HOW_IT_WORKS.md (math), RESEARCH_ROADMAP.md (what's next)
+tests/           pytest suite
 ```
+
+## Contributing
+
+PRs are very welcome, especially on the roadmap's top items: real-data benchmarks, validation-based stopping,
+and the multi-layer fix. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Citation
+
+If this is useful in your work, please cite it with [CITATION.cff](CITATION.cff) and the original papers listed above.
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Madhav Panchal

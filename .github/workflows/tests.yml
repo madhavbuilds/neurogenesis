@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: pip install -e ".[dev,viz]"
+      - name: Run tests
+        run: pytest -q
+      - name: Smoke-test the example
+        run: python -c "from neurogenesis import Neurogenesis; from neurogenesis.datasets import circles; X,y=circles(); m=Neurogenesis(random_state=0).fit(X,y); print(m.widths_, m.score(X,y)); assert m.score(X,y)>0.95"

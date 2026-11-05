@@ -9,8 +9,13 @@ description = "A neural network that grows its own brain: starts with 1 neuron, 
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
+authors = [{ name = "Madhav Panchal" }]
 dependencies = ["numpy>=1.22"]
 keywords = ["neural-network", "neural-architecture-search", "pruning", "dynamic-networks", "numpy"]
+
+[project.urls]
+Homepage = "https://github.com/madhavbuilds/neurogenesis"
+Issues = "https://github.com/madhavbuilds/neurogenesis/issues"
 
 [project.optional-dependencies]
 viz = ["matplotlib>=3.5", "pillow>=9"]
@@ -18,3 +23,6 @@ dev = ["pytest"]
 
 [tool.setuptools]
 packages = ["neurogenesis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

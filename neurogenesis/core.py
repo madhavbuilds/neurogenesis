@@ -164,7 +164,13 @@ class Neurogenesis:
         if X.ndim == 1:
             X = X[:, None]
         y = np.asarray(y)
+        if X.ndim != 2 or len(X) != len(y) or len(X) < 2:
+            raise ValueError(f"X must be 2-D with one row per label; got X{X.shape}, y{y.shape}")
+        if not np.isfinite(X).all():
+            raise ValueError("X contains NaN or infinite values")
         self.task_ = self._infer_task(y)
+        if self.task_ == "regression" and not np.isfinite(y.astype(float)).all():
+            raise ValueError("y contains NaN or infinite values")
 
         self._x_mu, self._x_sd = X.mean(0), X.std(0) + 1e-8
         Xs = (X - self._x_mu) / self._x_sd
@@ -249,6 +255,8 @@ class Neurogenesis:
         return self
 
     def predict_proba(self, X) -> np.ndarray:
+        if self._check_fitted().task_ != "classification":
+            raise AttributeError("predict_proba is only available for classification")
         _, out = self._forward(self._prep(X))
         return _softmax(out)
 
@@ -293,13 +301,22 @@ class Neurogenesis:
         if y.dtype.kind in "biuOUS":
             return "classification"
         if y.ndim == 1 and np.all(np.mod(y, 1) == 0) and len(np.unique(y)) <= 32:
+            # Ambiguous: integer-valued floats. Pass task="regression" for counts or ratings.
             return "classification"
         return "regression"
 
+    def _check_fitted(self) -> "Neurogenesis":
+        if not hasattr(self, "_W"):
+            raise RuntimeError("This Neurogenesis model is not fitted yet. Call fit(X, y) first.")
+        return self
+
     def _prep(self, X) -> np.ndarray:
+        self._check_fitted()
         X = np.asarray(X, dtype=float)
         if X.ndim == 1:
             X = X[:, None]
+        if X.shape[1] != len(self._x_mu):
+            raise ValueError(f"X has {X.shape[1]} features, but the model was fitted with {len(self._x_mu)}")
         return (X - self._x_mu) / self._x_sd
 
     def _new_ids(self, k: int) -> np.ndarray:
@@ -382,6 +399,11 @@ class Neurogenesis:
         Returns the weights, biases and scores of up to k winners, which are high-scoring and
         not redundant with each other or with existing neurons.
         """
+        Wc, bc, scores, Hc, Hn = self._candidate_pool(A, D, rng)
+        return self._select(Wc, bc, scores, Hc, Hn, H_existing, k)
+
+    def _candidate_pool(self, A, D, rng):
+        """Build and score the whole audition pool. Returns (W, b, scores, raw acts, standardized acts)."""
         n, d = A.shape
         C = self.candidates
         Wc = rng.normal(size=(d, C))
@@ -400,8 +422,13 @@ class Neurogenesis:
         Hc = np.tanh(A @ Wc + bc)
         Hn = (Hc - Hc.mean(0)) / (Hc.std(0) + 1e-8)
         scores = np.linalg.norm(Hn.T @ D, axis=1)  # ||dL/d(fan-out)|| for a unit-variance neuron
+        return Wc, bc, scores, Hc, Hn
 
-        En = (H_existing - H_existing.mean(0)) / (H_existing.std(0) + 1e-8)
+    @staticmethod
+    def _select(Wc, bc, scores, Hc, Hn, H_existing, k):
+        """Greedy pick of the best k candidates, skipping any that duplicate existing neurons or each other."""
+        n = len(Hn)
+        En =(H_existing - H_existing.mean(0)) / (H_existing.std(0) + 1e-8)
         chosen: list[int] = []
         for c in np.argsort(-scores):
             if len(chosen) == k or scores[c] < 1e-8:

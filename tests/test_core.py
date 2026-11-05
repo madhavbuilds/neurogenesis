@@ -104,3 +104,22 @@ def test_static_mode_never_changes_shape():
     X, y = D.moons()
     m = Neurogenesis(init_width=8, static=True, max_steps=1000, random_state=0).fit(X, y)
     assert m.widths_ == [8] and not m.events_
+
+
+def test_input_validation_and_clear_errors():
+    import pytest
+
+    X, y = D.moons()
+    with pytest.raises(RuntimeError, match="not fitted"):
+        Neurogenesis().predict(X)
+    Xn = X.copy()
+    Xn[0, 0] = np.nan
+    with pytest.raises(ValueError, match="NaN"):
+        Neurogenesis().fit(Xn, y)
+    m = Neurogenesis(max_steps=200, random_state=0).fit(X, y)
+    with pytest.raises(ValueError, match="features"):
+        m.predict(np.zeros((3, 5)))
+    Xr, yr = D.wavy()
+    r = Neurogenesis(max_steps=200, random_state=0).fit(Xr, yr)
+    with pytest.raises(AttributeError):
+        r.predict_proba(Xr)

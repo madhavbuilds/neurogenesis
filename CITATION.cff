@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below, and also cite the prior work it builds on (see README)."
+title: "Neurogenesis: a self-growing, self-pruning neural network"
+authors:
+  - family-names: Panchal
+    given-names: Madhav
+version: 0.1.0
+date-released: 2026-11-05
+license: MIT
+repository-code: "https://github.com/madhavbuilds/neurogenesis"
+keywords:
+  - neural networks
+  - dynamic architectures
+  - network growth
+  - pruning

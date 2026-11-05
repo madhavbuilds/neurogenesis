@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurogenesis"
+version = "0.1.0"
+description = "A neural network that grows its own brain: starts with 1 neuron, grows where the gradient asks, prunes what it doesn't need."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = ["numpy>=1.22"]
+keywords = ["neural-network", "neural-architecture-search", "pruning", "dynamic-networks", "numpy"]
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.5", "pillow>=9"]
+dev = ["pytest"]
+
+[tool.setuptools]
+packages = ["neurogenesis"]

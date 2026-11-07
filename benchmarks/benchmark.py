@@ -3,8 +3,8 @@ Does a network that sizes itself beat ordinary networks whose size you have to g
 
 For each dataset and seed:
   * Neurogenesis starts from 1 hidden neuron and stops on its own.
-  * Fixed-width MLPs (same optimiser, same tanh, same depth) are each trained for the full
-    30k-step budget. That is more steps than Neurogenesis usually uses.
+  * Fixed-width MLPs (same optimiser, same tanh, same depth, same validation split, early stopping
+    and best-checkpoint restore) get a budget of up to 30k steps each.
 
 Run:  python benchmarks/benchmark.py            (writes benchmarks/results.md)
 """
@@ -44,7 +44,7 @@ def main():
         "| dataset | Neurogenesis score | neurons (self-chosen) | steps | best fixed MLP | smallest fixed MLP within 1 pt of Neurogenesis |",
         "|---|---|---|---|---|---|",
     ]
-    detail = ["", "### Fixed-width sweep (mean test score over seeds, 30k steps each)", "",
+    detail = ["", "### Fixed-width sweep (mean test score over seeds; up to 30k steps each, early-stopped on validation)", "",
               "| dataset | " + " | ".join(f"w={w}" for w in WIDTHS) + " |", "|---|" + "---|" * len(WIDTHS)]
     for name, make in TASKS.items():
         print(name, flush=True)
@@ -61,7 +61,7 @@ def main():
         detail.append(f"| {name} | " + " | ".join(f"{means[w]:.3f}" for w in WIDTHS) + " |")
     out = "\n".join(
         ["# Benchmark results", "", f"Seeds: {SEEDS}. Score = test accuracy (classification) or R² (regression). "
-         "One hidden layer, tanh, Adam, identical training code for all models.", ""] + lines + detail
+         "One hidden layer, tanh, Adam, identical training code (incl. early stopping) for all models.", ""] + lines + detail
     )
     print("\n" + out)
     with open(os.path.join(os.path.dirname(__file__), "results.md"), "w") as fh:

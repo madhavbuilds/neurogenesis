@@ -35,7 +35,7 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "assets", "audition.gif")
 full = Neurogenesis(random_state=SEED).fit(X, y)
 growth_steps = sorted({e.step for e in full.events_ if e.kind == "birth"})
 stop = growth_steps[min(GROWTH_ROUND, len(growth_steps)) - 1] - 1
-model = Neurogenesis(random_state=SEED, max_steps=stop).fit(X, y)
+model = Neurogenesis(random_state=SEED, max_steps=stop, restore_best=False).fit(X, y)  # keep the exact pre-growth state
 
 Xs = model._prep(X)
 Y = np.eye(len(model.classes_))[np.searchsorted(model.classes_, y)]
@@ -53,6 +53,15 @@ err = np.linalg.norm(deltas[-1] * len(X), axis=1)  # per-point error |p - y|
 
 # 2. The full audition pool, then the real growth (same seed, so the same pool).
 Wc, bc, scores, Hc, Hn = model._candidate_pool(acts[0], deltas[1], np.random.default_rng(42))
+# The score the audition ranks by (see Neurogenesis._select): the share of the error signal a candidate
+# explains *beyond* what the existing neurons already can. Redundant candidates score 0.
+_B = np.c_[np.ones(len(Hc)), acts[1]]
+_U, _s, _ = np.linalg.svd(_B, full_matrices=False)
+_Q = _U[:, _s > 1e-8 * _s.max()]
+_R = Hc - _Q @ (_Q.T @ Hc)
+_rn = np.linalg.norm(_R, axis=0)
+scores = np.linalg.norm(_R.T @ deltas[1], axis=1) / (_rn * np.linalg.norm(deltas[1]) + 1e-30)
+scores[(_rn / (np.linalg.norm(Hc - Hc.mean(0), axis=0) + 1e-12) <= 0.1) | (Hc.std(0) <= 1e-3)] = 0.0
 n_before = model.n_neurons_
 proba_before = model.predict_proba(X)
 model._grow(stop, acts, deltas, np.random.default_rng(42))
@@ -160,7 +169,7 @@ def score_bars(highlight_winners, upto=None):
         ax.set_yticks([])
         ax.set_xlim(0, scores.max() * 1.1)
         ax.set_ylim(-1, 40)
-        ax.set_title("top 40 candidates · score = how fast it would cut the error", color=FG, fontsize=9, loc="left")
+        ax.set_title("top 40 candidates · score = share of the error it can explain that existing neurons can't", color=FG, fontsize=9, loc="left")
         if highlight_winners:
             ax.set_title("top 40 candidates · yellow = hired", color=NEWBORN, fontsize=9, loc="left")
     return draw
@@ -204,7 +213,7 @@ for i in range(1, 9):
         existing(ax, upto=n_before)
         points(ax, err)
     add(frame(3, "Each candidate is scored",
-              "Score = the gradient its outgoing weights would get = how fast it would reduce the error. Bright = high.",
+              "Score = how much of the remaining error it can explain that the current neurons can't. Bright = high.",
               draw, score_bars(False, upto=5 * i)), 0.15 if i < 8 else 2.5)
 
 
@@ -219,7 +228,7 @@ def hired(ax):
 
 
 add(frame(4, f"The best {len(winners)} are hired, with outgoing weights set to zero",
-          "Redundant look-alikes are skipped. Zero outgoing weights mean the output is unchanged (checked to 1e-12).",
+          "Each hire must add something the earlier ones can't. Zero outgoing weights: the output is unchanged (to 1e-12).",
           hired, score_bars(True)), 3.2)
 
 for t in range(1, 9):

@@ -13,10 +13,23 @@ pytest
 
 ## Good first contributions
 
-- **Real-data benchmarks.** Run Neurogenesis on public tabular datasets (OpenML) against fixed-width MLPs. See roadmap item 2.
-- **Validation-based stopping.** Roadmap item 1.
-- **The multi-layer bottleneck.** Roadmap item 3, with a written diagnosis in `docs/RESEARCH_ROADMAP.md`.
+- **Head-to-head with other growth methods.** GradMax, Cascade-Correlation, Self-Expanding NNs, Adaptive Width NNs, in the same
+  harness as `benchmarks/real_data.py`. Roadmap item 6.
+- **More real data.** The other datasets of the Grinsztajn benchmark, then one frozen-code run on TabArena. Roadmap item 2.
+- **Calibrated hiring.** Hire only when the audition beats a permutation null. Roadmap item 5.
 - **Docs and examples.** Notebooks, a clearer explanation, translations.
+
+## Running the benchmarks
+
+```bash
+pip install -e ".[bench]"
+python benchmarks/benchmark.py        # toy data, ~5 min
+python benchmarks/real_data.py        # 16 real datasets x 5 seeds, ~30 min on 8 cores (downloads from OpenML once)
+python benchmarks/plot_real.py        # assets/real_benchmark.png
+```
+
+Don't tune defaults on the held-out datasets. The four development datasets are listed in `real_data.py` (`DEV`);
+tune on their *validation* scores only.
 
 ## Rules of thumb
 

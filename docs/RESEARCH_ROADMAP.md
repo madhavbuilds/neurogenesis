@@ -3,34 +3,37 @@
 This page answers one question: **what would it take for Neurogenesis to be a real research contribution, and not just a nice demo?**
 Items are ranked by scientific importance. Each one is open for contributors. Open an issue before starting a big one.
 
-## Where we honestly stand
+## Where we honestly stand (v0.2)
 
 Every part of the mechanism has a published precedent (see the README's *Is this new?* table).
-The current evidence is toy 2-D/1-D data with 3 seeds. So right now this is a **clean, readable implementation of known ideas**.
-It becomes a contribution only through (a) a rigorous real-data study and (b) a well-supported improvement.
+v0.2 adds the first real-data evidence: 16 datasets from Grinsztajn et al. (2022), 5 seeds, 4 of them used for development and
+12 held out ([`benchmarks/real_results.md`](../benchmarks/real_results.md)). The short version:
+**it matches a tuned width sweep for the cost of one run, but on these datasets a sensible fixed width does too, and trees beat both.**
+So it is a **clean, well-tested implementation of known ideas with an honest evaluation**, not yet a research contribution.
 
 ## Ranked roadmap
 
-| # | Work item | Why it matters | Gate |
+| # | Work item | Why it matters | Status |
 |---|---|---|---|
-| **1** | **Validation-based stopping + best-checkpoint restore + growth rollback** | Growth decisions currently use training data, so no evaluation is methodologically clean without this | — |
-| **2** | **Real tabular benchmark on a development set** (≈10 datasets from Grinsztajn et al. 2022), testing H1–H3 below | Decides whether there's anything to claim | If it's not on par with a validation-tuned fixed MLP, or has no compute advantage → publish as a negative/empirical study, or stop |
-| **3** | **Scale-invariant growth placement** (fixes the multi-layer bottleneck) | A real, diagnosed defect | Must remove `[10, 10, 1]`-style failures across datasets |
-| **4** | **Better audition math:** score candidates after projecting out what existing neurons already explain; Gauss-Newton weighting for cross-entropy | Replaces the 0.95-correlation heuristic with a principled one | Ablation must show a gain |
-| **5** | **Statistically calibrated hiring** (permutation test) | The most plausible *distinctive* contribution | A full literature search must come back clean first |
-| **6** | Shared-codebase comparison with GradMax, SENN, NORTH, Adaptive Width NNs, Cascade-Correlation, plus one confirmatory TabArena run with frozen code | Required for any venue | — |
-| **7** | Release engineering: save/load, scikit-learn estimator compliance, lockfile | Credibility | — |
-| **8** | PyTorch backend, CNN/transformer widths | Reach | Only if 2 and 6 are positive |
+| **1** | **Validation-based stopping + best-checkpoint restore + growth rollback** | Growth decisions used training data, so no evaluation was methodologically clean | ✅ done in v0.2 (restore of the best checkpoint also rolls back unhelpful growth) |
+| **2** | **Real tabular benchmark on a development set**, testing H1–H4 below | Decides whether there's anything to claim | ◐ 16 datasets × 5 seeds done; ≥ 10 seeds and the categorical-feature suites still to do |
+| **3** | **Scale-invariant growth placement** (fixes the multi-layer bottleneck) | A real, diagnosed defect | ✅ done in v0.2: layers compete on the *share* of their error signal a candidate explains |
+| **4** | **Better audition math:** project out what existing neurons already explain; Gauss-Newton weighting for cross-entropy | Replaces the 0.95-correlation heuristic with a principled one | ◐ projection / OMP done; curvature weighting not done. Audition vs random: +0.41 pts, p = 0.11 (suggestive) |
+| **5** | **Statistically calibrated hiring** (permutation test) | The most plausible *distinctive* contribution | open. A full literature search must come back clean first |
+| **6** | Shared-codebase comparison with GradMax, SENN, NORTH, Adaptive Width NNs, Cascade-Correlation, plus one confirmatory TabArena run with frozen code | Required for any venue | open. Tuned sweep, untuned defaults, from-scratch control, ablations and a GBDT reference are done |
+| **7** | Release engineering: save/load, scikit-learn estimator compliance, lockfile | Credibility | ◐ save/load and `clone` / `cross_val_score` / `GridSearchCV` done; full `check_estimator` and a lockfile not done |
+| **8** | PyTorch backend, CNN/transformer widths | Reach | only if 2 and 6 are positive |
+| **9** | **Find where size matters on real data** | On the tabular sets, any reasonable width works, so self-sizing can't show its value there | new. Candidates: larger datasets, a fixed compute budget, no early stopping, or regimes where over-sizing overfits |
 
-## Hypotheses (register before running)
+## Hypotheses and v0.2 results (12 held-out datasets)
 
-| | Hypothesis | Prior |
-|---|---|---|
-| H1 | Default Neurogenesis is no worse than a validation-tuned fixed MLP (within a fixed margin on normalized log loss), with much less tuning compute | plausible |
-| H2 | Growing beats **the same final architecture trained from scratch** for the same number of steps | uncertain: this is the key control |
-| H3 | The width it picks tracks the validation-best width across datasets (Spearman ρ > 0) | plausible |
-| H4 | Each of pruning, fusion and the audition contributes (ablations) | uncertain |
-| H5 | At equal compute, it's at least as good as SENN, Adaptive Width NNs or GradMax | unlikely without items 3–5 |
+| | Hypothesis | Prior | v0.2 result |
+|---|---|---|---|
+| H1 | Default Neurogenesis is no worse than a validation-tuned fixed MLP, with much less tuning compute | plausible | **supported, weakly.** Median −0.24 pts (p = 0.30); 2-layer mean 0.816 vs 0.816. 17.7× less wall-clock. But untuned mid-size fixed MLPs are also no worse |
+| H2 | Growing beats **the same final architecture trained from scratch** for the same budget | uncertain | **not supported.** +0.02 pts median, p = 0.73. The value is in finding the size, not in growing |
+| H3 | The width it picks tracks the validation-best width across datasets (Spearman ρ > 0) | plausible | **inconclusive.** ρ = 0.34, p = 0.28 (n = 12) |
+| H4 | Each of pruning, fusion and the audition contributes (ablations) | uncertain | audition: suggestive (+0.41, p = 0.11). Pruning + fusion: no measurable effect on accuracy (+0.06) or size |
+| H5 | At equal compute, it's at least as good as SENN, Adaptive Width NNs or GradMax | unlikely without items 3–5 | not tested yet |
 
 ## Benchmark protocol
 
@@ -49,7 +52,9 @@ It becomes a contribution only through (a) a rigorous real-data study and (b) a 
 - **Statistics:** bootstrap 95% confidence intervals per dataset. Across datasets: Wilcoxon signed-rank with Holm correction, Friedman/Nemenyi critical-difference diagrams,
   and IQM with stratified-bootstrap CIs plus probability of improvement (the `rliable` approach). Report effect sizes.
 
-## Diagnosis: the multi-layer bottleneck
+## Diagnosis: the multi-layer bottleneck (fixed in v0.2)
+
+*Fix used:* layers now compete on ‖rᵀΔ‖ / (‖r‖‖Δ‖), the share of the layer's error signal a candidate explains, which is invariant to the scale of downstream weights. On spiral, 3 hidden layers, test accuracy went from 92.2% to 97.7% (3 seeds) and no run ended with a 1-neuron layer. The original diagnosis is kept below.
 
 One run, 3 hidden layers, spiral data. The audition always found valid winners in layer 3, but upstream layers kept winning the
 layer-selection comparison, ending at widths `[10, 10, 1]`. Over the growth rounds, the upstream error-signal norm
@@ -64,6 +69,8 @@ rose (0.007 → 0.125) as downstream weights grew, while layer 3's fell (0.022 �
 3. **Safety rule:** width ≥ output dimension, and force growth in a layer whose activations have hit their effective-rank limit.
 
 ## Audition math: proposed improvements
+
+Item 1 below (projection + greedy OMP) is implemented in v0.2 (`Neurogenesis._select`). Items 2–4 are open.
 
 1. **Project out existing neurons.** The output layer re-fits after a hire, so only the *new* part of a candidate's signal matters.
    For squared error, the gain after re-fitting is ‖(P⊥h)ᵀR‖² / (2‖P⊥h‖²), where P⊥ removes everything the existing neurons (plus a bias) can express.

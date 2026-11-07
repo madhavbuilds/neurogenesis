@@ -4,8 +4,8 @@ title: "Neurogenesis: a self-growing, self-pruning neural network"
 authors:
   - family-names: Panchal
     given-names: Madhav
-version: 0.1.0
-date-released: 2026-11-05
+version: 0.2.0
+date-released: 2026-11-07
 license: MIT
 repository-code: "https://github.com/madhavbuilds/neurogenesis"
 keywords:
